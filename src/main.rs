@@ -6,11 +6,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use teloxide::{prelude::*, utils::command::BotCommands};
 
-// Telegram mesaj karakter sınırı (güvenli bir marj bırakıldı)
 const MAX_MESSAGE_LENGTH: usize = 4000;
-
-// Filmler ve diziler artık Lazy statikler yerine her çağrıldığında dosyadan okunacak.
-// Bu, dosya değişikliklerinin anında yansımasını sağlar.
 
 #[tokio::main]
 async fn main() {
@@ -89,37 +85,37 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
         Command::RecommendFilm => match get_random_unwatched_film() {
             Some(film) => {
                 bot.send_message(
-                        msg.chat.id,
-                        format!("🎬 Film Önerisi: {}. İzlediğinizde `/izlenen_film_ekle {}` komutunu kullanın.", film, film)
-                    ).await?;
+                    msg.chat.id,
+                    format!("🎬 Film Önerisi: {}. İzlediğinizde `/izlenen_film_ekle {}` komutunu kullanın.", film, film)
+                ).await?;
             }
             None => {
                 bot.send_message(
-                        msg.chat.id,
-                        "✅ Tüm filmler önerildi! `izlenen_filmler.txt` dosyasını silerek listeyi sıfırlayabilirsin.",
-                    )
-                    .await?;
+                    msg.chat.id,
+                    "✅ Tüm filmler önerildi! `izlenen_filmler.txt` dosyasını silerek listeyi sıfırlayabilirsin.",
+                )
+                .await?;
             }
         },
 
         Command::RecommendDizi => match get_random_unwatched_series() {
             Some(series) => {
                 bot.send_message(
-                        msg.chat.id,
-                        format!("📺 Dizi Önerisi: {}. İzlediğinizde `/izlenen_dizi_ekle {}` komutunu kullanın.", series, series)
-                    ).await?;
+                    msg.chat.id,
+                    format!("📺 Dizi Önerisi: {}. İzlediğinizde `/izlenen_dizi_ekle {}` komutunu kullanın.", series, series)
+                ).await?;
             }
             None => {
                 bot.send_message(
-                        msg.chat.id,
-                        "✅ Tüm diziler önerildi! `izlenen_diziler.txt` dosyasını silerek listeyi sıfırlayabilirsin.",
-                    )
-                    .await?;
+                    msg.chat.id,
+                    "✅ Tüm diziler önerildi! `izlenen_diziler.txt` dosyasını silerek listeyi sıfırlayabilirsin.",
+                )
+                .await?;
             }
         },
 
         Command::IzlenenFilmEkle(film_name_raw) => {
-            let film_name_input = film_name_raw.trim().to_lowercase(); // Kullanıcı girdisi küçük harfe çevrildi
+            let film_name_input = film_name_raw.trim().to_lowercase();
             info!("Attempting to mark film as watched: '{}'", film_name_input);
             let all_films_in_master_list = load_films("filmler.txt");
 
@@ -130,7 +126,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
                 let f_lower = f.to_lowercase();
                 if f_lower == film_name_input {
                     exact_match = Some(f.clone());
-                    break; // Tam eşleşme bulundu, döngüyü bitir
+                    break;
                 } else if f_lower.contains(&film_name_input) {
                     potential_matches.push(f.clone());
                 }
@@ -164,7 +160,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
         }
 
         Command::IzlenenDiziEkle(series_name_raw) => {
-            let series_name_input = series_name_raw.trim().to_lowercase(); // Kullanıcı girdisi küçük harfe çevrildi
+            let series_name_input = series_name_raw.trim().to_lowercase();
             info!(
                 "Attempting to mark series as watched: '{}'",
                 series_name_input
@@ -178,7 +174,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
                 let s_lower = s.to_lowercase();
                 if s_lower == series_name_input {
                     exact_match = Some(s.clone());
-                    break; // Tam eşleşme bulundu, döngüyü bitir
+                    break;
                 } else if s_lower.contains(&series_name_input) {
                     potential_matches.push(s.clone());
                 }
@@ -391,34 +387,27 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
     Ok(())
 }
 
-// Uzun mesajları parçalara ayırıp gönderen yardımcı fonksiyon
 async fn send_long_message(bot: Bot, chat_id: ChatId, text: String) -> ResponseResult<()> {
-    // Mesajı satır sonlarından bölmeye çalış
     let lines: Vec<&str> = text.lines().collect();
     let mut current_chunk = String::new();
 
     for line in lines {
-        // Eğer mevcut parçaya yeni satır eklemek mesaj sınırını aşacaksa
         if current_chunk.len() + line.len() + 1 > MAX_MESSAGE_LENGTH {
-            // Mevcut parçayı gönder
             if !current_chunk.is_empty() {
                 bot.send_message(chat_id, current_chunk.clone()).await?;
                 current_chunk.clear();
             }
         }
-        // Yeni satırı parçaya ekle
         current_chunk.push_str(line);
         current_chunk.push('\n');
     }
 
-    // Kalan son parçayı gönder (eğer boş değilse)
     if !current_chunk.is_empty() {
         bot.send_message(chat_id, current_chunk).await?;
     }
     Ok(())
 }
 
-// Filmleri doğrudan satır olarak yükler (yıl bilgisi dahil).
 fn load_films(path: &str) -> Vec<String> {
     fs::read_to_string(path)
         .unwrap_or_else(|_| {
@@ -426,16 +415,16 @@ fn load_films(path: &str) -> Vec<String> {
                 "'{}' dosyası bulunamadı veya okunamadı. Boş liste döndürüldü.",
                 path
             );
-            String::new() // Dosya yoksa veya okunamıyorsa boş string döndür
+            String::new()
         })
         .lines()
-        .filter(|s| !s.trim().is_empty()) // Boş satırları filtrele
+        .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
         .collect()
 }
 
 fn get_random_unwatched_film() -> Option<String> {
-    let all_films = load_films("filmler.txt"); // Her zaman güncel listeyi al
+    let all_films = load_films("filmler.txt");
     let watched = load_watched_films("izlenen_filmler.txt");
     let unwatched: Vec<_> = all_films
         .iter()
@@ -455,11 +444,10 @@ fn load_watched_films(path: &str) -> HashSet<String> {
 }
 
 fn mark_film_as_watched(film: &str) {
-    let mut watched_films = load_watched_films("izlenen_filmler.txt"); // `mut` eklendi çünkü set değişecek
+    let mut watched_films = load_watched_films("izlenen_filmler.txt");
     if watched_films.insert(film.to_string()) {
-        // insert true dönerse yeni eklendi demektir
         let mut file = OpenOptions::new()
-            .write(true) // Dosyayı silip yeniden yaz
+            .write(true)
             .create(true)
             .open("izlenen_filmler.txt")
             .expect("❌ izlenen_filmler.txt dosyasına yazılamıyor!");
@@ -475,16 +463,13 @@ fn mark_film_as_watched(film: &str) {
     }
 }
 
-// Yeni film ekleme fonksiyonu
 fn add_film_to_file(film: &str) -> io::Result<bool> {
-    // bool döndürecek şekilde değiştirildi
     let mut all_films = load_films("filmler.txt")
         .into_iter()
-        .collect::<HashSet<String>>(); // HashSet'e dönüştürüldü
+        .collect::<HashSet<String>>();
     if all_films.insert(film.to_string()) {
-        // insert true dönerse yeni eklendi demektir
         let mut file = OpenOptions::new()
-            .write(true) // Dosyayı silip yeniden yaz
+            .write(true)
             .create(true)
             .open("filmler.txt")?;
 
@@ -494,14 +479,13 @@ fn add_film_to_file(film: &str) -> io::Result<bool> {
             writeln!(file, "{}", f)?;
         }
         info!("Film '{}' filmler.txt dosyasına eklendi.", film);
-        Ok(true) // Başarıyla eklendi
+        Ok(true)
     } else {
         info!("Film '{}' zaten filmler.txt dosyasında mevcut.", film);
-        Ok(false) // Zaten mevcuttu
+        Ok(false)
     }
 }
 
-// Dizileri doğrudan satır olarak yükler (sezon bilgisi dahil).
 fn load_series(path: &str) -> HashSet<String> {
     fs::read_to_string(path)
         .unwrap_or_else(|_| {
@@ -509,15 +493,14 @@ fn load_series(path: &str) -> HashSet<String> {
                 "'{}' dosyası bulunamadı veya okunamadı. Boş liste döndürüldü.",
                 path
             );
-            String::new() // Dosya yoksa veya okunamıyorsa boş string döndür
+            String::new()
         })
         .lines()
-        .filter(|s| !s.trim().is_empty()) // Boş satırları filtrele
+        .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
         .collect()
 }
 
-// İzlenen dizileri sadece isimleriyle yükler.
 fn load_watched_series(path: &str) -> HashSet<String> {
     match fs::read_to_string(path) {
         Ok(contents) => contents.lines().map(str::to_string).collect(),
@@ -525,7 +508,6 @@ fn load_watched_series(path: &str) -> HashSet<String> {
     }
 }
 
-// Rastgele izlenmemiş bir dizi önerir.
 fn get_random_unwatched_series() -> Option<String> {
     let all_series = load_series("diziler.txt");
     let watched = load_watched_series("izlenen_diziler.txt");
@@ -539,13 +521,11 @@ fn get_random_unwatched_series() -> Option<String> {
     unwatched.choose(&mut rng).cloned()
 }
 
-// Bir diziyi izlenenler listesine ekler.
 fn mark_series_as_watched(series: &str) {
-    let mut watched_series = load_watched_series("izlenen_diziler.txt"); // `mut` eklendi
+    let mut watched_series = load_watched_series("izlenen_diziler.txt");
     if watched_series.insert(series.to_string()) {
-        // insert true dönerse yeni eklendi demektir
         let mut file = OpenOptions::new()
-            .write(true) // Dosyayı silip yeniden yaz
+            .write(true)
             .create(true)
             .open("izlenen_diziler.txt")
             .expect("❌ izlenen_diziler.txt dosyasına yazılamıyor!");
@@ -561,14 +541,11 @@ fn mark_series_as_watched(series: &str) {
     }
 }
 
-// Yeni dizi ekleme fonksiyonu
 fn add_series_to_file(series: &str) -> io::Result<bool> {
-    // bool döndürecek şekilde değiştirildi
-    let mut all_series = load_series("diziler.txt"); // Zaten HashSet döndürüyor
+    let mut all_series = load_series("diziler.txt");
     if all_series.insert(series.to_string()) {
-        // insert true dönerse yeni eklendi demektir
         let mut file = OpenOptions::new()
-            .write(true) // Dosyayı silip yeniden yaz
+            .write(true)
             .create(true)
             .open("diziler.txt")?;
 
@@ -578,9 +555,9 @@ fn add_series_to_file(series: &str) -> io::Result<bool> {
             writeln!(file, "{}", s)?;
         }
         info!("Dizi '{}' diziler.txt dosyasına eklendi.", series);
-        Ok(true) // Başarıyla eklendi
+        Ok(true)
     } else {
         info!("Dizi '{}' zaten diziler.txt dosyasında mevcut.", series);
-        Ok(false) // Zaten mevcuttu
+        Ok(false)
     }
 }
