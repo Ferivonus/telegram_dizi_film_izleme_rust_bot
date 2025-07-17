@@ -1,16 +1,16 @@
 use dotenv;
 use log::info;
-use once_cell::sync::Lazy;
 use rand::seq::SliceRandom;
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use teloxide::{prelude::*, utils::command::BotCommands};
 
-// Filmler filmler.txt dosyasından yüklenir.
-static FILMS: Lazy<Vec<String>> = Lazy::new(|| load_films("filmler.txt"));
-// Diziler diziler.txt dosyasından yüklenir, artık sadece isimler tutulur.
-static SERIES: Lazy<HashSet<String>> = Lazy::new(|| load_series("diziler.txt"));
+// Telegram mesaj karakter sınırı (güvenli bir marj bırakıldı)
+const MAX_MESSAGE_LENGTH: usize = 4000;
+
+// Filmler ve diziler artık Lazy statikler yerine her çağrıldığında dosyadan okunacak.
+// Bu, dosya değişikliklerinin anında yansımasını sağlar.
 
 #[tokio::main]
 async fn main() {
@@ -24,38 +24,58 @@ async fn main() {
 
 #[derive(BotCommands, Clone)]
 #[command(
-    rename_rule = "snake_case", // snake_case olarak değiştirildi
-    description = "Bu komutlar desteklenmektedir:" // Açıklama Türkçeye çevrildi
+    rename_rule = "snake_case",
+    description = "Merhaba! Ben Film ve Dizi Botu. İşte kullanabileceğin komutlar:"
 )]
 enum Command {
-    #[command(description = "Bu metni gösterir.")] // Açıklama Türkçeye çevrildi
+    #[command(description = "Tüm komutların listesini ve açıklamalarını gösterir.")]
     Help,
 
-    #[command(description = "filmler.txt dosyasından rastgele bir film önerir.")]
-    // Açıklama Türkçeye çevrildi
+    #[command(description = "İzlenmemiş filmler listesinden rastgele bir film önerir.")]
     RecommendFilm,
 
-    #[command(description = "diziler.txt dosyasından rastgele bir dizi önerir.")]
-    // Açıklama Türkçeye çevrildi
+    #[command(description = "İzlenmemiş diziler listesinden rastgele bir dizi önerir.")]
     RecommendDizi,
 
     #[command(
-        description = "İzlediğiniz filmler listesine bir film ekler. Kullanım: /izlenen_film_ekle <Film Adı>"
-    )] // Komut adı ve açıklama Türkçeye çevrildi
+        description = "Önerilen veya izlediğin bir filmi 'izlenenler' listene ekler. Kullanım: /izlenen_film_ekle <Film Adı>"
+    )]
     IzlenenFilmEkle(String),
 
     #[command(
-        description = "İzlediğiniz diziler listesine bir dizi ekler. Kullanım: /izlenen_dizi_ekle <Dizi Adı>"
-    )] // Komut adı ve açıklama Türkçeye çevrildi
+        description = "Önerilen veya izlediğin bir diziyi 'izlenenler' listene ekler. Kullanım: /izlenen_dizi_ekle <Dizi Adı>"
+    )]
     IzlenenDiziEkle(String),
 
-    #[command(description = "İzlediğiniz filmleri gösterir.")] // Açıklama Türkçeye çevrildi
+    #[command(
+        description = "Yeni bir filmi ana filmler listesine ekler. Kullanım: /film_ekle <Film Adı>"
+    )]
+    FilmEkle(String),
+
+    #[command(
+        description = "Yeni bir diziyi ana diziler listesine ekler. Kullanım: /dizi_ekle <Dizi Adı>"
+    )]
+    DiziEkle(String),
+
+    #[command(description = "İzlediğin tüm filmleri listeler.")]
     WatchedFilms,
 
-    #[command(description = "İzlediğiniz dizileri gösterir.")] // Açıklama Türkçeye çevrildi
+    #[command(description = "İzlediğin tüm dizileri listeler.")]
     WatchedSeries,
 
-    #[command(description = "Bota merhaba der.")] // Açıklama Türkçeye çevrildi
+    #[command(description = "Ana filmler listesindeki tüm filmleri gösterir.")]
+    TumFilmler,
+
+    #[command(description = "Ana diziler listesindeki tüm dizileri gösterir.")]
+    TumDiziler,
+
+    #[command(description = "Henüz izlemediğin filmleri listeler.")]
+    IzlenmemisFilmler,
+
+    #[command(description = "Henüz izlemediğin dizileri listeler.")]
+    IzlenmemisDiziler,
+
+    #[command(description = "Bota merhaba der ve sana özel bir mesaj gönderir.")]
     Hello,
 }
 
@@ -66,84 +86,265 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
                 .await?;
         }
 
-        Command::RecommendFilm => {
-            match get_random_unwatched_film() {
-                Some(film) => {
-                    bot.send_message(
+        Command::RecommendFilm => match get_random_unwatched_film() {
+            Some(film) => {
+                bot.send_message(
                         msg.chat.id,
-                        format!("🎬 Film Önerisi: {}. İzlediğinizde `/izlenen_film_ekle {}` komutunu kullanın.", film, film) // Komut adı güncellendi
+                        format!("🎬 Film Önerisi: {}. İzlediğinizde `/izlenen_film_ekle {}` komutunu kullanın.", film, film)
                     ).await?;
-                }
-                None => {
-                    bot.send_message(
+            }
+            None => {
+                bot.send_message(
                         msg.chat.id,
                         "✅ Tüm filmler önerildi! `izlenen_filmler.txt` dosyasını silerek listeyi sıfırlayabilirsin.",
                     )
                     .await?;
+            }
+        },
+
+        Command::RecommendDizi => match get_random_unwatched_series() {
+            Some(series) => {
+                bot.send_message(
+                        msg.chat.id,
+                        format!("📺 Dizi Önerisi: {}. İzlediğinizde `/izlenen_dizi_ekle {}` komutunu kullanın.", series, series)
+                    ).await?;
+            }
+            None => {
+                bot.send_message(
+                        msg.chat.id,
+                        "✅ Tüm diziler önerildi! `izlenen_diziler.txt` dosyasını silerek listeyi sıfırlayabilirsin.",
+                    )
+                    .await?;
+            }
+        },
+
+        Command::IzlenenFilmEkle(film_name_raw) => {
+            let film_name_input = film_name_raw.trim().to_lowercase(); // Kullanıcı girdisi küçük harfe çevrildi
+            info!("Attempting to mark film as watched: '{}'", film_name_input);
+            let all_films_in_master_list = load_films("filmler.txt");
+
+            let mut exact_match: Option<String> = None;
+            let mut potential_matches: Vec<String> = Vec::new();
+
+            for f in all_films_in_master_list.iter() {
+                let f_lower = f.to_lowercase();
+                if f_lower == film_name_input {
+                    exact_match = Some(f.clone());
+                    break; // Tam eşleşme bulundu, döngüyü bitir
+                } else if f_lower.contains(&film_name_input) {
+                    potential_matches.push(f.clone());
+                }
+            }
+
+            if let Some(film_to_mark) = exact_match {
+                mark_film_as_watched(&film_to_mark);
+                bot.send_message(
+                    msg.chat.id,
+                    format!("✅ '{}' filmi izlenenlere eklendi.", film_to_mark),
+                )
+                .await?;
+            } else {
+                if !potential_matches.is_empty() {
+                    let suggestions = potential_matches.join(", ");
+                    bot.send_message(
+                        msg.chat.id,
+                        format!(
+                            "Hata: '{}' adında bir film bulunamadı. Bunu mu demek istediniz: {}?",
+                            film_name_input, suggestions
+                        ),
+                    )
+                    .await?;
+                } else {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("Hata: '{}' adında bir film bulunamadı. Lütfen `filmler.txt` dosyasındaki tam adı (yıl bilgisi dahil) kullanın.", film_name_input)
+                    ).await?;
                 }
             }
         }
 
-        Command::RecommendDizi => {
-            match get_random_unwatched_series() {
-                Some(series) => {
+        Command::IzlenenDiziEkle(series_name_raw) => {
+            let series_name_input = series_name_raw.trim().to_lowercase(); // Kullanıcı girdisi küçük harfe çevrildi
+            info!(
+                "Attempting to mark series as watched: '{}'",
+                series_name_input
+            );
+            let all_series_in_master_list = load_series("diziler.txt");
+
+            let mut exact_match: Option<String> = None;
+            let mut potential_matches: Vec<String> = Vec::new();
+
+            for s in all_series_in_master_list.iter() {
+                let s_lower = s.to_lowercase();
+                if s_lower == series_name_input {
+                    exact_match = Some(s.clone());
+                    break; // Tam eşleşme bulundu, döngüyü bitir
+                } else if s_lower.contains(&series_name_input) {
+                    potential_matches.push(s.clone());
+                }
+            }
+
+            if let Some(series_to_mark) = exact_match {
+                mark_series_as_watched(&series_to_mark);
+                bot.send_message(
+                    msg.chat.id,
+                    format!("✅ '{}' dizisi izlenenlere eklendi.", series_to_mark),
+                )
+                .await?;
+            } else {
+                if !potential_matches.is_empty() {
+                    let suggestions = potential_matches.join(", ");
                     bot.send_message(
                         msg.chat.id,
-                        format!("📺 Dizi Önerisi: {}. İzlediğinizde `/izlenen_dizi_ekle {}` komutunu kullanın.", series, series) // Komut adı güncellendi
+                        format!(
+                            "Hata: '{}' adında bir dizi bulunamadı. Bunu mu demek istediniz: {}?",
+                            series_name_input, suggestions
+                        ),
+                    )
+                    .await?;
+                } else {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("Hata: '{}' adında bir dizi bulunamadı. Lütfen `diziler.txt` dosyasındaki tam adı (sezon bilgisi dahil) kullanın.", series_name_input)
                     ).await?;
                 }
-                None => {
+            }
+        }
+
+        Command::FilmEkle(film_name_raw) => {
+            let film_name = film_name_raw.trim().to_string();
+            info!("Attempting to add film to master list: '{}'", film_name);
+            match add_film_to_file(&film_name) {
+                Ok(added) => {
+                    if added {
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("✅ '{}' filmi `filmler.txt` dosyasına eklendi.", film_name),
+                        )
+                        .await?;
+                    } else {
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "ℹ️ Film '{}' zaten `filmler.txt` dosyasında mevcut.",
+                                film_name
+                            ),
+                        )
+                        .await?;
+                    }
+                }
+                Err(e) => {
                     bot.send_message(
                         msg.chat.id,
-                        "✅ Tüm diziler önerildi! `izlenen_diziler.txt` dosyasını silerek listeyi sıfırlayabilirsin.",
+                        format!("❌ Film eklenirken bir hata oluştu: {}", e),
                     )
                     .await?;
                 }
             }
         }
 
-        Command::IzlenenFilmEkle(film_name_raw) => {
-            let film_name = film_name_raw.trim().to_string();
-            info!("Attempting to add watched film: '{}'", film_name);
-            // FILMS listesindeki filmlerin de yıl bilgisi içerebileceğini varsayarak kontrolü güncelledik
-            if FILMS.iter().any(|f| {
-                f.starts_with(&film_name)
-                    && (f.len() == film_name.len() || f[film_name.len()..].trim().starts_with('('))
-            }) {
-                mark_film_as_watched(&film_name);
-                bot.send_message(
-                    msg.chat.id,
-                    format!("✅ '{}' filmi izlenenlere eklendi.", film_name),
-                )
-                .await?;
-            } else {
-                bot.send_message(
-                    msg.chat.id,
-                    format!("Hata: '{}' adında bir film bulunamadı. Lütfen `filmler.txt` dosyasındaki tam adı (yıl bilgisi dahil) kullanın.", film_name)
-                ).await?;
+        Command::DiziEkle(series_name_raw) => {
+            let series_name = series_name_raw.trim().to_string();
+            info!("Attempting to add series to master list: '{}'", series_name);
+            match add_series_to_file(&series_name) {
+                Ok(added) => {
+                    if added {
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "✅ '{}' dizisi `diziler.txt` dosyasına eklendi.",
+                                series_name
+                            ),
+                        )
+                        .await?;
+                    } else {
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "ℹ️ Dizi '{}' zaten `diziler.txt` dosyasında mevcut.",
+                                series_name
+                            ),
+                        )
+                        .await?;
+                    }
+                }
+                Err(e) => {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("❌ Dizi eklenirken bir hata oluştu: {}", e),
+                    )
+                    .await?;
+                }
             }
         }
 
-        Command::IzlenenDiziEkle(series_name_raw) => {
-            let series_name = series_name_raw.trim().to_string();
-            info!("Attempting to add watched series: '{}'", series_name);
-            // SERIES setindeki dizilerin de sezon bilgisi içerebileceğini varsayarak kontrolü güncelledik
-            if SERIES.iter().any(|s| {
-                s.starts_with(&series_name)
-                    && (s.len() == series_name.len()
-                        || s[series_name.len()..].trim().starts_with('('))
-            }) {
-                mark_series_as_watched(&series_name);
-                bot.send_message(
-                    msg.chat.id,
-                    format!("✅ '{}' dizisi izlenenlere eklendi.", series_name),
-                )
-                .await?;
+        Command::TumFilmler => {
+            let all_films = load_films("filmler.txt");
+            if all_films.is_empty() {
+                bot.send_message(msg.chat.id, "Henüz `filmler.txt` dosyasında kayıtlı bir film yok. `/film_ekle` komutunu kullanarak ekleyebilirsin.").await?;
             } else {
-                bot.send_message(
-                    msg.chat.id,
-                    format!("Hata: '{}' adında bir dizi bulunamadı. Lütfen `diziler.txt` dosyasındaki tam adı (sezon bilgisi dahil) kullanın.", series_name)
-                ).await?;
+                let mut response_text = "🎬 Tüm Filmler:\n".to_string();
+                let mut sorted_films: Vec<&String> = all_films.iter().collect();
+                sorted_films.sort();
+                for film in sorted_films.iter() {
+                    response_text.push_str(&format!("- {}\n", film));
+                }
+                send_long_message(bot, msg.chat.id, response_text).await?;
+            }
+        }
+
+        Command::TumDiziler => {
+            let all_series = load_series("diziler.txt");
+            if all_series.is_empty() {
+                bot.send_message(msg.chat.id, "Henüz `diziler.txt` dosyasında kayıtlı bir dizi yok. `/dizi_ekle` komutunu kullanarak ekleyebilirsin.").await?;
+            } else {
+                let mut response_text = "📺 Tüm Diziler:\n".to_string();
+                let mut sorted_series: Vec<&String> = all_series.iter().collect();
+                sorted_series.sort();
+                for series_name in sorted_series.iter() {
+                    response_text.push_str(&format!("- {}\n", series_name));
+                }
+                send_long_message(bot, msg.chat.id, response_text).await?;
+            }
+        }
+
+        Command::IzlenmemisFilmler => {
+            let all_films = load_films("filmler.txt");
+            let watched_films = load_watched_films("izlenen_filmler.txt");
+            let mut unwatched_films: Vec<&String> = all_films
+                .iter()
+                .filter(|f| !watched_films.contains(f.as_str()))
+                .collect();
+            unwatched_films.sort();
+
+            if unwatched_films.is_empty() {
+                bot.send_message(msg.chat.id, "🎉 Harika! Tüm filmleri izlemişsin veya listen boş. Yeni filmler eklemek için `/film_ekle` komutunu kullanabilirsin.").await?;
+            } else {
+                let mut response_text = "🎬 İzlenmemiş Filmler:\n".to_string();
+                for film in unwatched_films.iter() {
+                    response_text.push_str(&format!("- {}\n", film));
+                }
+                send_long_message(bot, msg.chat.id, response_text).await?;
+            }
+        }
+
+        Command::IzlenmemisDiziler => {
+            let all_series = load_series("diziler.txt");
+            let watched_series = load_watched_series("izlenen_diziler.txt");
+            let mut unwatched_series: Vec<&String> = all_series
+                .iter()
+                .filter(|s| !watched_series.contains(s.as_str()))
+                .collect();
+            unwatched_series.sort();
+
+            if unwatched_series.is_empty() {
+                bot.send_message(msg.chat.id, "🎉 Harika! Tüm dizileri izlemişsin veya listen boş. Yeni diziler eklemek için `/dizi_ekle` komutunu kullanabilirsin.").await?;
+            } else {
+                let mut response_text = "📺 İzlenmemiş Diziler:\n".to_string();
+                for series_name in unwatched_series.iter() {
+                    response_text.push_str(&format!("- {}\n", series_name));
+                }
+                send_long_message(bot, msg.chat.id, response_text).await?;
             }
         }
 
@@ -154,11 +355,11 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
             } else {
                 let mut response_text = "🎬 İzlediğin Filmler:\n".to_string();
                 let mut sorted_films: Vec<&String> = watched_films.iter().collect();
-                sorted_films.sort(); // Filmleri alfabetik olarak sırala
+                sorted_films.sort();
                 for film in sorted_films.iter() {
                     response_text.push_str(&format!("- {}\n", film));
                 }
-                bot.send_message(msg.chat.id, response_text).await?;
+                send_long_message(bot, msg.chat.id, response_text).await?;
             }
         }
 
@@ -169,11 +370,11 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
             } else {
                 let mut response_text = "📺 İzlediğin Diziler:\n".to_string();
                 let mut sorted_series: Vec<&String> = watched_series.iter().collect();
-                sorted_series.sort(); // Dizileri alfabetik olarak sırala
+                sorted_series.sort();
                 for series_name in sorted_series.iter() {
                     response_text.push_str(&format!("- {}\n", series_name));
                 }
-                bot.send_message(msg.chat.id, response_text).await?;
+                send_long_message(bot, msg.chat.id, response_text).await?;
             }
         }
 
@@ -190,18 +391,53 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
     Ok(())
 }
 
+// Uzun mesajları parçalara ayırıp gönderen yardımcı fonksiyon
+async fn send_long_message(bot: Bot, chat_id: ChatId, text: String) -> ResponseResult<()> {
+    // Mesajı satır sonlarından bölmeye çalış
+    let lines: Vec<&str> = text.lines().collect();
+    let mut current_chunk = String::new();
+
+    for line in lines {
+        // Eğer mevcut parçaya yeni satır eklemek mesaj sınırını aşacaksa
+        if current_chunk.len() + line.len() + 1 > MAX_MESSAGE_LENGTH {
+            // Mevcut parçayı gönder
+            if !current_chunk.is_empty() {
+                bot.send_message(chat_id, current_chunk.clone()).await?;
+                current_chunk.clear();
+            }
+        }
+        // Yeni satırı parçaya ekle
+        current_chunk.push_str(line);
+        current_chunk.push('\n');
+    }
+
+    // Kalan son parçayı gönder (eğer boş değilse)
+    if !current_chunk.is_empty() {
+        bot.send_message(chat_id, current_chunk).await?;
+    }
+    Ok(())
+}
+
 // Filmleri doğrudan satır olarak yükler (yıl bilgisi dahil).
 fn load_films(path: &str) -> Vec<String> {
     fs::read_to_string(path)
-        .expect("❌ filmler.txt bulunamadı veya okunamadı!")
+        .unwrap_or_else(|_| {
+            info!(
+                "'{}' dosyası bulunamadı veya okunamadı. Boş liste döndürüldü.",
+                path
+            );
+            String::new() // Dosya yoksa veya okunamıyorsa boş string döndür
+        })
         .lines()
-        .map(|s| s.trim().to_string()) // Her satırı doğrudan String olarak al
+        .filter(|s| !s.trim().is_empty()) // Boş satırları filtrele
+        .map(|s| s.trim().to_string())
         .collect()
 }
 
 fn get_random_unwatched_film() -> Option<String> {
+    let all_films = load_films("filmler.txt"); // Her zaman güncel listeyi al
     let watched = load_watched_films("izlenen_filmler.txt");
-    let unwatched: Vec<_> = FILMS
+    let unwatched: Vec<_> = all_films
         .iter()
         .filter(|f| !watched.contains(f.as_str()))
         .cloned()
@@ -219,24 +455,66 @@ fn load_watched_films(path: &str) -> HashSet<String> {
 }
 
 fn mark_film_as_watched(film: &str) {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("izlenen_filmler.txt")
-        .expect("❌ izlenen_filmler.txt dosyasına yazılamıyor!");
-    writeln!(file, "{}", film).expect("❌ Filme yazma başarısız!");
+    let mut watched_films = load_watched_films("izlenen_filmler.txt"); // `mut` eklendi çünkü set değişecek
+    if watched_films.insert(film.to_string()) {
+        // insert true dönerse yeni eklendi demektir
+        let mut file = OpenOptions::new()
+            .write(true) // Dosyayı silip yeniden yaz
+            .create(true)
+            .open("izlenen_filmler.txt")
+            .expect("❌ izlenen_filmler.txt dosyasına yazılamıyor!");
+
+        let mut sorted_films: Vec<&String> = watched_films.iter().collect();
+        sorted_films.sort();
+        for f in sorted_films {
+            writeln!(file, "{}", f).expect("❌ Filme yazma başarısız!");
+        }
+        info!("Successfully marked film '{}' as watched.", film);
+    } else {
+        info!("Film '{}' zaten izlenenler listesinde.", film);
+    }
+}
+
+// Yeni film ekleme fonksiyonu
+fn add_film_to_file(film: &str) -> io::Result<bool> {
+    // bool döndürecek şekilde değiştirildi
+    let mut all_films = load_films("filmler.txt")
+        .into_iter()
+        .collect::<HashSet<String>>(); // HashSet'e dönüştürüldü
+    if all_films.insert(film.to_string()) {
+        // insert true dönerse yeni eklendi demektir
+        let mut file = OpenOptions::new()
+            .write(true) // Dosyayı silip yeniden yaz
+            .create(true)
+            .open("filmler.txt")?;
+
+        let mut sorted_films: Vec<&String> = all_films.iter().collect();
+        sorted_films.sort();
+        for f in sorted_films {
+            writeln!(file, "{}", f)?;
+        }
+        info!("Film '{}' filmler.txt dosyasına eklendi.", film);
+        Ok(true) // Başarıyla eklendi
+    } else {
+        info!("Film '{}' zaten filmler.txt dosyasında mevcut.", film);
+        Ok(false) // Zaten mevcuttu
+    }
 }
 
 // Dizileri doğrudan satır olarak yükler (sezon bilgisi dahil).
 fn load_series(path: &str) -> HashSet<String> {
-    let contents = fs::read_to_string(path).expect("❌ diziler.txt bulunamadı veya okunamadı!");
-    let mut loaded_series = HashSet::new();
-    for line in contents.lines() {
-        let clean_line = line.trim().to_string(); // Her satırı doğrudan String olarak al
-        info!("Loaded series name: '{}'", clean_line);
-        loaded_series.insert(clean_line);
-    }
-    loaded_series
+    fs::read_to_string(path)
+        .unwrap_or_else(|_| {
+            info!(
+                "'{}' dosyası bulunamadı veya okunamadı. Boş liste döndürüldü.",
+                path
+            );
+            String::new() // Dosya yoksa veya okunamıyorsa boş string döndür
+        })
+        .lines()
+        .filter(|s| !s.trim().is_empty()) // Boş satırları filtrele
+        .map(|s| s.trim().to_string())
+        .collect()
 }
 
 // İzlenen dizileri sadece isimleriyle yükler.
@@ -249,8 +527,9 @@ fn load_watched_series(path: &str) -> HashSet<String> {
 
 // Rastgele izlenmemiş bir dizi önerir.
 fn get_random_unwatched_series() -> Option<String> {
+    let all_series = load_series("diziler.txt");
     let watched = load_watched_series("izlenen_diziler.txt");
-    let unwatched: Vec<_> = SERIES
+    let unwatched: Vec<_> = all_series
         .iter()
         .filter(|s| !watched.contains(s.as_str()))
         .cloned()
@@ -262,11 +541,46 @@ fn get_random_unwatched_series() -> Option<String> {
 
 // Bir diziyi izlenenler listesine ekler.
 fn mark_series_as_watched(series: &str) {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("izlenen_diziler.txt")
-        .expect("❌ izlenen_diziler.txt dosyasına yazılamıyor!");
-    writeln!(file, "{}", series).expect("❌ Diziye yazma başarısız!");
-    info!("Successfully marked series '{}' as watched.", series);
+    let mut watched_series = load_watched_series("izlenen_diziler.txt"); // `mut` eklendi
+    if watched_series.insert(series.to_string()) {
+        // insert true dönerse yeni eklendi demektir
+        let mut file = OpenOptions::new()
+            .write(true) // Dosyayı silip yeniden yaz
+            .create(true)
+            .open("izlenen_diziler.txt")
+            .expect("❌ izlenen_diziler.txt dosyasına yazılamıyor!");
+
+        let mut sorted_series: Vec<&String> = watched_series.iter().collect();
+        sorted_series.sort();
+        for s in sorted_series {
+            writeln!(file, "{}", s).expect("❌ Diziye yazma başarısız!");
+        }
+        info!("Successfully marked series '{}' as watched.", series);
+    } else {
+        info!("Dizi '{}' zaten izlenenler listesinde.", series);
+    }
+}
+
+// Yeni dizi ekleme fonksiyonu
+fn add_series_to_file(series: &str) -> io::Result<bool> {
+    // bool döndürecek şekilde değiştirildi
+    let mut all_series = load_series("diziler.txt"); // Zaten HashSet döndürüyor
+    if all_series.insert(series.to_string()) {
+        // insert true dönerse yeni eklendi demektir
+        let mut file = OpenOptions::new()
+            .write(true) // Dosyayı silip yeniden yaz
+            .create(true)
+            .open("diziler.txt")?;
+
+        let mut sorted_series: Vec<&String> = all_series.iter().collect();
+        sorted_series.sort();
+        for s in sorted_series {
+            writeln!(file, "{}", s)?;
+        }
+        info!("Dizi '{}' diziler.txt dosyasına eklendi.", series);
+        Ok(true) // Başarıyla eklendi
+    } else {
+        info!("Dizi '{}' zaten diziler.txt dosyasında mevcut.", series);
+        Ok(false) // Zaten mevcuttu
+    }
 }
