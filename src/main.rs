@@ -25,13 +25,13 @@ async fn main() {
 )]
 enum Command {
     #[command(description = "Tüm komutların listesini ve açıklamalarını gösterir.")]
-    Help,
+    Yardim,
 
     #[command(description = "İzlenmemiş filmler listesinden rastgele bir film önerir.")]
-    RecommendFilm,
+    FilmOner,
 
     #[command(description = "İzlenmemiş diziler listesinden rastgele bir dizi önerir.")]
-    RecommendDizi,
+    DiziOner,
 
     #[command(
         description = "Önerilen veya izlediğin bir filmi 'izlenenler' listene ekler. Kullanım: /izlenen_film_ekle <Film Adı>"
@@ -54,10 +54,10 @@ enum Command {
     DiziEkle(String),
 
     #[command(description = "İzlediğin tüm filmleri listeler.")]
-    WatchedFilms,
+    IzlenenFilmler,
 
     #[command(description = "İzlediğin tüm dizileri listeler.")]
-    WatchedSeries,
+    IzlenenDiziler,
 
     #[command(description = "Ana filmler listesindeki tüm filmleri gösterir.")]
     TumFilmler,
@@ -72,17 +72,17 @@ enum Command {
     IzlenmemisDiziler,
 
     #[command(description = "Bota merhaba der ve sana özel bir mesaj gönderir.")]
-    Hello,
+    Merhaba,
 }
 
 async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
     match cmd {
-        Command::Help => {
+        Command::Yardim => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
         }
 
-        Command::RecommendFilm => match get_random_unwatched_film() {
+        Command::FilmOner => match get_random_unwatched_film() {
             Some(film) => {
                 bot.send_message(
                     msg.chat.id,
@@ -98,7 +98,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
             }
         },
 
-        Command::RecommendDizi => match get_random_unwatched_series() {
+        Command::DiziOner => match get_random_unwatched_series() {
             Some(series) => {
                 bot.send_message(
                     msg.chat.id,
@@ -344,10 +344,10 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
             }
         }
 
-        Command::WatchedFilms => {
+        Command::IzlenenFilmler => {
             let watched_films = load_watched_films("izlenen_filmler.txt");
             if watched_films.is_empty() {
-                bot.send_message(msg.chat.id, "Henüz izlenmiş bir film yok. `/recommend_film` komutunu kullanarak ilk filmini öner!").await?;
+                bot.send_message(msg.chat.id, "Henüz izlenmiş bir film yok. `/film_oner` komutunu kullanarak ilk filmini öner!").await?;
             } else {
                 let mut response_text = "🎬 İzlediğin Filmler:\n".to_string();
                 let mut sorted_films: Vec<&String> = watched_films.iter().collect();
@@ -359,10 +359,10 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
             }
         }
 
-        Command::WatchedSeries => {
+        Command::IzlenenDiziler => {
             let watched_series = load_watched_series("izlenen_diziler.txt");
             if watched_series.is_empty() {
-                bot.send_message(msg.chat.id, "Henüz izlenmiş bir dizi yok. `/recommend_dizi` komutunu kullanarak ilk dizini öner!").await?;
+                bot.send_message(msg.chat.id, "Henüz izlenmiş bir dizi yok. `/dizi_oner` komutunu kullanarak ilk dizini öner!").await?;
             } else {
                 let mut response_text = "📺 İzlediğin Diziler:\n".to_string();
                 let mut sorted_series: Vec<&String> = watched_series.iter().collect();
@@ -374,7 +374,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
             }
         }
 
-        Command::Hello => {
+        Command::Merhaba => {
             let name = msg
                 .from
                 .map(|u| u.first_name.clone())
